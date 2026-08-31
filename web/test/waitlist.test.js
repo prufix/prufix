@@ -173,10 +173,10 @@ test('recordSignup: an unrecognised WAITLIST_SINK falls back to stderr, never si
 
 test('parseSheetsSink: id and optional tab, malformed ids rejected', () => {
   const id = '15XfGWjq6sGSqWBqZC7W7d1JWmzZL-Azt6wPafAlWk6g';
-  assert.deepEqual(parseSheetsSink(`sheets:${id}`), { spreadsheetId: id, tab: 'signups' });
+  // No tab means "the first sheet", not a tab literally called signups.
+  assert.deepEqual(parseSheetsSink(`sheets:${id}`), { spreadsheetId: id, tab: '' });
   assert.deepEqual(parseSheetsSink(`sheets:${id}#leads`), { spreadsheetId: id, tab: 'leads' });
-  // Empty tab after the # is the default, not an empty sheet name.
-  assert.deepEqual(parseSheetsSink(`sheets:${id}#`), { spreadsheetId: id, tab: 'signups' });
+  assert.deepEqual(parseSheetsSink(`sheets:${id}#`), { spreadsheetId: id, tab: '' });
   assert.equal(parseSheetsSink('sheets:'), null);
   assert.equal(parseSheetsSink('sheets:too-short'), null);
   // A whole URL pasted in by mistake must not be read as an id.
@@ -238,7 +238,10 @@ test('recordSignup: sheets sink appends [ts, email, profile] with a metadata-ser
     assert.equal(seen.appends.length, 1);
     const call = seen.appends[0];
     assert.match(call.url, new RegExp(`/v4/spreadsheets/${SHEET_ID}/values/`));
-    assert.match(call.url, /signups!A%3AC:append/);
+    // No sheet name in the range at all -- Sheets takes the first sheet,
+    // whatever the creator's locale named it.
+    assert.match(call.url, /\/values\/A%3AC:append/);
+    assert.ok(!call.url.includes('%21'), 'a bare range must carry no "<tab>!" prefix');
     assert.match(call.url, /valueInputOption=RAW/);
     assert.match(call.url, /insertDataOption=INSERT_ROWS/);
     assert.equal(call.auth, 'Bearer test-token');
@@ -278,5 +281,14 @@ test('recordSignup: a custom tab name reaches the range', async () => {
   await withGoogle({}, `sheets:${SHEET_ID}#leads`, async (seen) => {
     await recordSignup({ email: 'c@example.com', profile: 'facturx' });
     assert.match(seen.appends[0].url, /leads!A%3AC:append/);
+  });
+});
+
+test('recordSignup: a non-ASCII tab name survives into the range', async () => {
+  // The default tab of a spreadsheet created in Japanese is シート1; naming it
+  // explicitly has to keep working even though the default is now no tab.
+  await withGoogle({}, `sheets:${SHEET_ID}#シート1`, async (seen) => {
+    await recordSignup({ email: 'd@example.com', profile: 'en16931' });
+    assert.match(seen.appends[0].url, new RegExp(`${encodeURIComponent('シート1!A:C')}:append`));
   });
 });

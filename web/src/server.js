@@ -208,6 +208,10 @@ async function handleWaitlistPost(req, res) {
     // reach the sink must show the visitor an error rather than a thank-you.
     await recordSignup({ email, profile });
   } catch (e) {
+    // Without this the operator sees a working page and an empty sheet, with
+    // nothing anywhere saying why. recordSignup builds its own messages and
+    // keeps the address out of them, which is what makes this safe to log.
+    log({ event: 'waitlist-sink-failed', reason: e && e.message });
     return handleWaitlistGet(req, res, { error: 'Could not save your signup right now. Please try again.', email, profile });
   }
 

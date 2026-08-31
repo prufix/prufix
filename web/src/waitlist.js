@@ -20,8 +20,15 @@ const POST_TIMEOUT_MS = 10_000;
 // Read per call, not once at require() time: a test sets these after the
 // module is already loaded, and a module-level constant would quietly keep
 // pointing at the real metadata server.
+//
+// The `scopes` parameter is not optional here. Cloud Run's default token
+// carries cloud-platform, and the Sheets API does not accept it: the five
+// scopes it takes are spreadsheets[.readonly] and drive[.file|.readonly].
+// Without this the append fails 403 on a sheet that IS correctly shared,
+// which reads exactly like a sharing mistake.
+const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const metadataUrl = () => process.env.EINVOICE_METADATA_URL
-  || 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
+  || `http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token?scopes=${encodeURIComponent(SHEETS_SCOPE)}`;
 const sheetsApi = () => process.env.EINVOICE_SHEETS_API || 'https://sheets.googleapis.com';
 
 function validateEmail(email) {
@@ -75,15 +82,21 @@ async function postSignup(url, payload) {
 
 /**
  * `sheets:<spreadsheetId>` or `sheets:<spreadsheetId>#<tab>`.
- * The id is the long segment of the sheet's URL; the tab defaults to
- * `signups`. Anything malformed returns null and falls through to stderr.
+ * The id is the long segment of the sheet's URL.
+ *
+ * With no `#tab` the range carries no sheet name, which Sheets resolves to
+ * the first visible sheet. That is deliberate: the default tab of a new
+ * spreadsheet is named in the creator's own locale -- this one arrived as
+ * `シート1` -- and a config that assumes `signups` fails with a bare
+ * INVALID_ARGUMENT that says nothing about tab names. Not naming the tab
+ * also means a later rename cannot silently start rejecting signups.
  */
 function parseSheetsSink(sink) {
   if (!sink.startsWith('sheets:')) return null;
   const rest = sink.slice('sheets:'.length);
   const hash = rest.indexOf('#');
   const spreadsheetId = (hash === -1 ? rest : rest.slice(0, hash)).trim();
-  const tab = (hash === -1 ? '' : rest.slice(hash + 1)).trim() || 'signups';
+  const tab = (hash === -1 ? '' : rest.slice(hash + 1)).trim();
   if (!/^[A-Za-z0-9_-]{20,}$/.test(spreadsheetId)) return null;
   return { spreadsheetId, tab };
 }
@@ -129,7 +142,7 @@ function resetTokenCache() {
  */
 async function appendToSheet({ spreadsheetId, tab }, { email, profile, ts }) {
   const token = await getAccessToken();
-  const range = encodeURIComponent(`${tab}!A:C`);
+  const range = encodeURIComponent(tab ? `${tab}!A:C` : 'A:C');
   const url = `${sheetsApi()}/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${range}:append`
     + '?valueInputOption=RAW&insertDataOption=INSERT_ROWS';
 
@@ -140,10 +153,17 @@ async function appendToSheet({ spreadsheetId, tab }, { email, profile, ts }) {
     signal: AbortSignal.timeout(POST_TIMEOUT_MS),
   });
   if (!res.ok) {
-    // 403 here almost always means the sheet was never shared with the Cloud
-    // Run service account. Say so -- without the address, and without the
-    // response body, which echoes the request.
-    throw new Error(`sheets append returned HTTP ${res.status}`);
+    // Carry the API's own status enum (PERMISSION_DENIED, NOT_FOUND, ...)
+    // because HTTP 403 alone cannot tell "sheet not shared" from "wrong
+    // scope", and those have completely different fixes. The enum is a fixed
+    // vocabulary; the rest of the body is not, and the request -- which holds
+    // the address -- can appear in it, so nothing else is taken.
+    let detail = '';
+    try {
+      const body = await res.json();
+      if (body && body.error && typeof body.error.status === 'string') detail = ` (${body.error.status})`;
+    } catch { /* a non-JSON error body tells us nothing; the status will do */ }
+    throw new Error(`sheets append returned HTTP ${res.status}${detail}`);
   }
 }
 
