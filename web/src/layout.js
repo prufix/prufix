@@ -22,6 +22,15 @@ function page(o) {
   const body = o && o.body != null ? String(o.body) : '';
   const nav = o && o.nav ? String(o.nav) : null;
 
+  // Search Console verifies a URL-prefix property by looking for this tag in
+  // the <head> of the property's homepage. It is a property of the deployment,
+  // not of any one page, so it is read here rather than added to the signature
+  // above, which contract 9.21 freezes. Read per call, not once at require()
+  // time: that makes setting it a Cloud Run env update instead of an image
+  // rebuild, which matters because the static /rules pages are baked at build
+  // time while `/` -- the only page verification looks at -- is not.
+  const verification = process.env.EINVOICE_SITE_VERIFICATION || '';
+
   const navLink = (href, label, key) =>
     `<a href="${href}"${nav === key ? ' class="current" aria-current="page"' : ''}>${esc(label)}</a>`;
 
@@ -33,7 +42,7 @@ function page(o) {
 <meta name="color-scheme" content="light dark">
 <title>${esc(title)} — Prufix</title>
 <meta name="description" content="${esc(description)}">
-${canonical ? `<link rel="canonical" href="${esc(canonical)}">\n` : ''}<style>
+${verification ? `<meta name="google-site-verification" content="${esc(verification)}">\n` : ''}${canonical ? `<link rel="canonical" href="${esc(canonical)}">\n` : ''}<style>
 ${CSS}
 </style>
 </head>

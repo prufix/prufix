@@ -74,3 +74,39 @@ test('homeBody includes all 5 contract profile ids as select options', () => {
     assert.match(html, new RegExp(`value="${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`));
   }
 });
+
+// -- Search Console verification ------------------------------------------
+// The tag is read from the environment inside page() rather than passed in,
+// because contract §9.21 freezes the signature and because verification is a
+// property of the deployment. These tests pin both directions of that: absent
+// by default (an unverified property is a non-event, a stray tag is not) and
+// present, escaped, when set.
+
+test('layout.page emits no google-site-verification tag when the env var is unset', () => {
+  const prev = process.env.EINVOICE_SITE_VERIFICATION;
+  delete process.env.EINVOICE_SITE_VERIFICATION;
+  try {
+    const html = layout.page({ title: 'T', description: 'D', body: '<p>x</p>', nav: null });
+    assert.doesNotMatch(html, /google-site-verification/);
+  } finally {
+    if (prev === undefined) delete process.env.EINVOICE_SITE_VERIFICATION;
+    else process.env.EINVOICE_SITE_VERIFICATION = prev;
+  }
+});
+
+test('layout.page emits the verification tag in <head>, escaped, when the env var is set', () => {
+  const prev = process.env.EINVOICE_SITE_VERIFICATION;
+  process.env.EINVOICE_SITE_VERIFICATION = 'tok"><script>alert(1)</script>';
+  try {
+    const html = layout.page({ title: 'T', description: 'D', body: '<p>x</p>', nav: null });
+    assert.match(html, /<meta name="google-site-verification" content="tok/);
+    // Read per call, not cached at require() time -- the whole point is that
+    // setting it is an env update, not a rebuild.
+    assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+    const head = html.slice(0, html.indexOf('</head>'));
+    assert.match(head, /google-site-verification/, 'must be inside <head>');
+  } finally {
+    if (prev === undefined) delete process.env.EINVOICE_SITE_VERIFICATION;
+    else process.env.EINVOICE_SITE_VERIFICATION = prev;
+  }
+});
