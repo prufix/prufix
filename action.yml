@@ -1,8 +1,11 @@
 name: 'Prufix'
+# Marketplace requires this to be under 125 characters and reads it verbatim
+# (the folded scalar joins with single spaces, so the limit applies to the
+# joined string, not to any one line). 120 as written. The longer pitch lives
+# in README.md, which has no such limit.
 description: >-
-  An e-invoice linter for CI. Validates EN 16931, Peppol BIS, XRechnung and
-  Factur-X documents against the official rules and explains each failed rule
-  using the actual values from your document.
+  An e-invoice linter for CI. Explains each failed EN 16931, Peppol BIS,
+  XRechnung or Factur-X rule using your own values.
 author: 'prufix'
 
 branding:
