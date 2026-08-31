@@ -1,7 +1,8 @@
 'use strict';
 
-// Smoke regression against REAL validator output (contract "未解決: 実SVRLとの
-// 突き合わせ"). Fixtures were produced by the prufix:dev engine over the
+// Smoke regression against REAL validator output: the other formatter tests
+// run on SVRL we wrote ourselves, so nothing else here would notice if the
+// real engines changed shape. Fixtures were produced by the prufix:dev engine over the
 // official XRechnung 3.0.2 testsuite instance standard/01.01a-INVOICE_ubl.xml:
 //   real-kosit-0101a.svrl   KoSIT validator v1.6.3 (Saxon), verbatim
 //   real-peppol-0101a.svrl  SchXslt-compiled Peppol BIS 3.0.20 XSLT, trimmed
