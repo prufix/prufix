@@ -204,7 +204,9 @@ async function handleWaitlistPost(req, res) {
   }
 
   try {
-    recordSignup({ email, profile });
+    // Awaited: the https sink is a network call, and a signup that failed to
+    // reach the sink must show the visitor an error rather than a thank-you.
+    await recordSignup({ email, profile });
   } catch (e) {
     return handleWaitlistGet(req, res, { error: 'Could not save your signup right now. Please try again.', email, profile });
   }
