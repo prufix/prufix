@@ -62,8 +62,9 @@ const DOC_BASE = process.env.EINVOICE_DOC_BASE || null;
 // Origin of DOC_BASE -- robots.txt and sitemap.xml sit at the site root, not
 // under /rules, and deriving it here keeps one variable authoritative.
 const SITE_ORIGIN = DOC_BASE ? new URL(DOC_BASE).origin : null;
-const EXPECTED_RULE_COUNT = 30; // hard cap, not a target: the dictionary is
-                                // deliberately fixed at 30 rules
+const EXPECTED_RULE_COUNT = 31; // hard cap, not a target: the dictionary is
+                                // deliberately fixed (contract 9.41 raised the
+                                // cap from 30 to 31 for PEPPOL-EN16931-R008)
 
 // ---------------------------------------------------------------------------
 // Minimal Markdown -> HTML (see app/web/content/README.md for the supported

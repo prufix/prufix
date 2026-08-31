@@ -743,6 +743,44 @@ PEPPOL-EN16931-R004:
         #compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0 to the
         CustomizationID - the same file then passes both checks.
 
+# [PEPPOL] PEPPOL-EN16931-R008 (fatal): "Document MUST not contain empty elements."
+# Context is the empty element itself: //*[not(*) and not(normalize-space())]
+# with test="false()", so the assert fires once per offending node and @location
+# points AT it (verified against PEPPOL-EN16931-UBL.sch at the pinned commit,
+# contract 9.15). UBL only -- PEPPOL-EN16931-CII.sch has no R008.
+PEPPOL-EN16931-R008:
+  title: "Document contains an empty element"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  probe:
+    element: "local-name(.)"
+    parent: "local-name(..)"
+    attrs: "count(@*)"
+  # Every one of these is "of the node that failed". The location IS the empty
+  # element, so a root retry would answer for the document element instead and
+  # print a confident, wrong element name (contract 9.33).
+  locationOnly: [element, parent, attrs]
+  explain: |
+    The element {element} inside {parent} is present but empty.
+    EN 16931 permits it; Peppol BIS rejects any element that has neither a
+    child element nor text.
+  hints:
+    - when: "attrs > 0"
+      text: >
+        This element carries attributes but no content. Attributes do not
+        count: Peppol tests for a child element or non-whitespace text, so
+        something like <cbc:X currencyID="EUR"/> is still empty.
+    - text: >
+        Nothing in the document is wrong as data - the field is simply not
+        being used. Most often the generator emitted a tag for a value that
+        was null or an empty string. Omit the element entirely instead of
+        writing it empty; every field this rule can reach is optional, or
+        the missing-field rule would have fired first.
+    - text: >
+        This is why the file passes a plain EN 16931 check but is rejected on
+        the Peppol network: EN 16931 has no rule against empty elements at
+        all, so only the Peppol ruleset ever reports it.
+
 # [PEPPOL] PEPPOL-EN16931-R010 (fatal): "Buyer electronic address MUST be provided."
 PEPPOL-EN16931-R010:
   title: "Missing buyer electronic address"

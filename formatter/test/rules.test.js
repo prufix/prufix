@@ -70,8 +70,8 @@ test('the priority families from mvp-design 3.4 are covered', () => {
   assert.ok(ids.some((i) => i.startsWith('PEPPOL-EN16931-')), 'no Peppol-specific rules');
 });
 
-test('the dictionary is exactly 30 rules (contract §9.20, mvp-design §3.4 cap)', () => {
-  assert.equal(Object.keys(RULES).length, 30);
+test('the dictionary is exactly 31 rules (contract §9.41 raised the §9.20 cap by one)', () => {
+  assert.equal(Object.keys(RULES).length, 31);
   for (const id of ['BR-S-08', 'BR-S-09', 'BR-CL-01', 'BR-CL-04', 'PEPPOL-EN16931-CL008']) {
     assert.ok(Object.hasOwn(RULES, id), `missing rule ${id}`);
   }
