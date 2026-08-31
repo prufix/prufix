@@ -8,7 +8,7 @@ const path = require('node:path');
 
 const http = require('node:http');
 
-const { validateEmail, sanitizeProfile, recordSignup, isAllowedSinkUrl } = require('../src/waitlist');
+const { validateEmail, sanitizeProfile, recordSignup, isAllowedSinkUrl, parseSheetsSink, resetTokenCache } = require('../src/waitlist');
 
 test('validateEmail: basic accept/reject', () => {
   assert.equal(validateEmail('dev@example.com'), true);
@@ -167,4 +167,116 @@ test('recordSignup: an unrecognised WAITLIST_SINK falls back to stderr, never si
   }
   assert.equal(lines[0], 'waitlist en16931\n');
   assert.ok(!lines[0].includes('dropped@example.com'));
+});
+
+// -- Google Sheets sink (contract §9.23) ------------------------------------
+
+test('parseSheetsSink: id and optional tab, malformed ids rejected', () => {
+  const id = '15XfGWjq6sGSqWBqZC7W7d1JWmzZL-Azt6wPafAlWk6g';
+  assert.deepEqual(parseSheetsSink(`sheets:${id}`), { spreadsheetId: id, tab: 'signups' });
+  assert.deepEqual(parseSheetsSink(`sheets:${id}#leads`), { spreadsheetId: id, tab: 'leads' });
+  // Empty tab after the # is the default, not an empty sheet name.
+  assert.deepEqual(parseSheetsSink(`sheets:${id}#`), { spreadsheetId: id, tab: 'signups' });
+  assert.equal(parseSheetsSink('sheets:'), null);
+  assert.equal(parseSheetsSink('sheets:too-short'), null);
+  // A whole URL pasted in by mistake must not be read as an id.
+  assert.equal(parseSheetsSink(`sheets:https://docs.google.com/spreadsheets/d/${id}/edit`), null);
+  assert.equal(parseSheetsSink('stderr'), null);
+  assert.equal(parseSheetsSink('https://example.com/x'), null);
+});
+
+/** Stands in for the metadata server and the Sheets API on one loopback port. */
+function googleStub({ tokenStatus = 200, appendStatus = 200 } = {}) {
+  const seen = { tokenCalls: 0, appends: [] };
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      if (req.url.startsWith('/token')) {
+        seen.tokenCalls += 1;
+        seen.metadataFlavor = req.headers['metadata-flavor'];
+        res.writeHead(tokenStatus, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ access_token: 'test-token', expires_in: 3600 }));
+      }
+      seen.appends.push({ url: req.url, auth: req.headers.authorization, body });
+      res.writeHead(appendStatus, { 'content-type': 'application/json' });
+      return res.end('{}');
+    });
+  });
+  return { server, seen };
+}
+
+async function withGoogle(opts, spreadsheetSink, fn) {
+  const { server, seen } = googleStub(opts);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const prev = { sink: process.env.WAITLIST_SINK, md: process.env.EINVOICE_METADATA_URL, api: process.env.EINVOICE_SHEETS_API };
+  process.env.WAITLIST_SINK = spreadsheetSink;
+  process.env.EINVOICE_METADATA_URL = `${base}/token`;
+  process.env.EINVOICE_SHEETS_API = base;
+  resetTokenCache();
+  try {
+    return await fn(seen);
+  } finally {
+    for (const [k, v] of [['WAITLIST_SINK', prev.sink], ['EINVOICE_METADATA_URL', prev.md], ['EINVOICE_SHEETS_API', prev.api]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    resetTokenCache();
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+const SHEET_ID = '15XfGWjq6sGSqWBqZC7W7d1JWmzZL-Azt6wPafAlWk6g';
+
+test('recordSignup: sheets sink appends [ts, email, profile] with a metadata-server token', async () => {
+  await withGoogle({}, `sheets:${SHEET_ID}`, async (seen) => {
+    await recordSignup({ email: 'maria@example-gmbh.de', profile: 'XRechnung 3.0.2' });
+
+    assert.equal(seen.tokenCalls, 1);
+    assert.equal(seen.metadataFlavor, 'Google', 'metadata server refuses requests without this header');
+
+    assert.equal(seen.appends.length, 1);
+    const call = seen.appends[0];
+    assert.match(call.url, new RegExp(`/v4/spreadsheets/${SHEET_ID}/values/`));
+    assert.match(call.url, /signups!A%3AC:append/);
+    assert.match(call.url, /valueInputOption=RAW/);
+    assert.match(call.url, /insertDataOption=INSERT_ROWS/);
+    assert.equal(call.auth, 'Bearer test-token');
+
+    const sent = JSON.parse(call.body);
+    assert.equal(sent.values.length, 1);
+    const [ts, email, profile] = sent.values[0];
+    assert.ok(!Number.isNaN(Date.parse(ts)));
+    assert.equal(email, 'maria@example-gmbh.de');
+    assert.equal(profile, 'XRechnung 3.0.2');
+  });
+});
+
+test('recordSignup: sheets sink caches the token across signups', async () => {
+  await withGoogle({}, `sheets:${SHEET_ID}`, async (seen) => {
+    await recordSignup({ email: 'a@example.com', profile: 'en16931' });
+    await recordSignup({ email: 'b@example.com', profile: 'auto' });
+    assert.equal(seen.appends.length, 2);
+    assert.equal(seen.tokenCalls, 1, 'a one-hour token must not be re-fetched per signup');
+  });
+});
+
+test('recordSignup: sheets sink rejects on 403 (sheet not shared) without leaking the email', async () => {
+  await withGoogle({ appendStatus: 403 }, `sheets:${SHEET_ID}`, async () => {
+    await assert.rejects(
+      () => recordSignup({ email: 'jan@example.nl', profile: 'auto' }),
+      (err) => {
+        assert.match(err.message, /sheets append returned HTTP 403/);
+        assert.ok(!err.message.includes('jan@example.nl'));
+        return true;
+      },
+    );
+  });
+});
+
+test('recordSignup: a custom tab name reaches the range', async () => {
+  await withGoogle({}, `sheets:${SHEET_ID}#leads`, async (seen) => {
+    await recordSignup({ email: 'c@example.com', profile: 'facturx' });
+    assert.match(seen.appends[0].url, /leads!A%3AC:append/);
+  });
 });
