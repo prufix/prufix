@@ -1,0 +1,13 @@
+# The image this action ships is Linux, and the scripts inside it are run by
+# /bin/sh. A clone made on Windows under the default `core.autocrlf=true`
+# would check these out with CRLF, and `#!/usr/bin/env bash\r` is not an
+# interpreter — the container exits 127 with "no such file or directory",
+# naming the interpreter that plainly does exist. Pin the working tree, not
+# just the repository, to LF so the checkout itself cannot introduce it.
+* text=auto eol=lf
+
+# Fixtures are compared byte-for-byte by the test suites (and the SVRL ones
+# are captured real validator output). Exclude them from any normalization so
+# a future change to the rules above cannot silently rewrite the evidence.
+test/fixtures/**            -text
+formatter/test/fixtures/**  -text
