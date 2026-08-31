@@ -49,7 +49,17 @@ COPY web/ /app/web/
 # /rules/<id> is generated at build time, never shipped pre-built: the build is
 # the single source of truth for the 30 pages, and the generator hard-fails if
 # rules.yaml and web/content/rules/ disagree in either direction (contract 9.19).
-RUN rm -rf /app/web/public && node /app/web/tools/gen-rules.mjs
+#
+# DOC_BASE is the public origin the pages will be served from, and it must be
+# passed at BUILD time -- a RUN step inherits nothing from the host, so a
+# runtime variable would be too late. Left unset the generator emits no
+# canonical tag, no sitemap.xml and no robots.txt, which is deliberate: the
+# Action's own CI builds this image and has no public origin to name, and a
+# canonical pointing at the wrong host tells crawlers to index that host
+# instead of ours. Absent beats wrong.
+#   docker build --build-arg DOC_BASE=https://<host>/rules .
+ARG DOC_BASE=
+RUN rm -rf /app/web/public && EINVOICE_DOC_BASE="$DOC_BASE" node /app/web/tools/gen-rules.mjs
 
 # The Action is the default entrypoint below. The web server is the SAME image
 # started with a different command:

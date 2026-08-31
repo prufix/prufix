@@ -45,8 +45,23 @@ const CONTENT_DIR = path.join(__dirname, '../content/rules');
 const OUT_DIR = path.join(__dirname, '../public/rules');
 const LAYOUT_PATH = path.join(__dirname, '../src/layout.js');
 
-// contract §8: product name / domain are undecided. Placeholders only.
-const DOC_BASE = 'https://example.dev/rules';
+// Same variable src/validate.js reads, so report.json's docUrl and the
+// canonical tag on the page it points at can never disagree. It used to be a
+// hardcoded 'https://example.dev/rules' placeholder from the time the domain
+// was undecided (contract §8, since closed), and because web/public/ is
+// generated and untracked, nothing ever looked at the output again: every one
+// of the 30 pages shipped telling crawlers that the canonical version lived on
+// a domain we do not own, which is an instruction not to index ours.
+// Unset means unset: no canonical tag, no sitemap, no robots.txt. A missing
+// canonical is harmless (a crawler self-canonicalises), a wrong one is an
+// instruction to index someone else's URL instead of ours -- so the default
+// has to be absence, not a guess. This is the same fail-safe direction as the
+// waitlist sink in contract 9.23, and it matters here because the image runs
+// this at build time, where a RUN step inherits nothing from the host.
+const DOC_BASE = process.env.EINVOICE_DOC_BASE || null;
+// Origin of DOC_BASE -- robots.txt and sitemap.xml sit at the site root, not
+// under /rules, and deriving it here keeps one variable authoritative.
+const SITE_ORIGIN = DOC_BASE ? new URL(DOC_BASE).origin : null;
 const EXPECTED_RULE_COUNT = 30; // hard cap, not a target: the dictionary is
                                 // deliberately fixed at 30 rules
 
@@ -332,7 +347,7 @@ export async function generate({
     const html = layoutPage({
       title: `${id} — ${title}`,
       description: `What ${id} checks, why it fires, and how to fix it, with example XML. prufix rule reference.`,
-      canonical: `${DOC_BASE}/${id}`,
+      canonical: DOC_BASE ? `${DOC_BASE}/${id}` : null,
       body: renderRulePage({ id, frontMatter, bodyHtml }),
       nav: 'rules',
     });
@@ -344,14 +359,52 @@ export async function generate({
   const indexHtml = layoutPage({
     title: 'Rule reference',
     description: 'Reference pages for every EN 16931 / Peppol BIS rule prufix explains.',
-    canonical: `${DOC_BASE}/`,
+    canonical: DOC_BASE ? `${DOC_BASE}/` : null,
     body: renderIndexPage(pages),
     nav: 'rules',
   });
   await writeFile(path.join(outDir, 'index.html'), indexHtml, 'utf8');
 
+  // A page with no inbound link and no sitemap entry may simply never be
+  // crawled: being reachable over HTTP is not the same as being findable.
+  // These two files are the only part of that we can supply ourselves.
+  const siteDir = path.join(outDir, '..');
+  if (!DOC_BASE) {
+    if (!quiet) {
+      console.log(`gen-rules: wrote ${pages.length} rule pages + index.html to ${outDir}`);
+      console.log('gen-rules: EINVOICE_DOC_BASE is unset -- no canonical tags, no sitemap.xml, no robots.txt');
+    }
+    return { count: pages.length, ids: dictIds, outDir };
+  }
+  const urls = [
+    `${SITE_ORIGIN}/`,
+    `${DOC_BASE}/`,
+    ...pages.map((pg) => `${DOC_BASE}/${pg.id}`),
+  ];
+  const sitemap = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...urls.map((u) => `  <url><loc>${escapeHtml(u)}</loc></url>`),
+    '</urlset>',
+    '',
+  ].join('\n');
+  await writeFile(path.join(siteDir, 'sitemap.xml'), sitemap, 'utf8');
+
+  // /waitlist is excluded: it is a form, it has nothing to rank for, and a
+  // crawler following it adds nothing. Everything else is allowed.
+  const robots = [
+    'User-agent: *',
+    'Disallow: /waitlist',
+    'Allow: /',
+    '',
+    `Sitemap: ${SITE_ORIGIN}/sitemap.xml`,
+    '',
+  ].join('\n');
+  await writeFile(path.join(siteDir, 'robots.txt'), robots, 'utf8');
+
   if (!quiet) {
     console.log(`gen-rules: wrote ${pages.length} rule pages + index.html to ${outDir}`);
+    console.log(`gen-rules: wrote sitemap.xml (${urls.length} urls) + robots.txt, canonical base ${DOC_BASE}`);
   }
 
   return { count: pages.length, ids: dictIds, outDir };
