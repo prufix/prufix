@@ -10,6 +10,11 @@ It validates EN 16931, Peppol BIS Billing 3.0, XRechnung and Factur-X
 documents using the official, unmodified rulesets from the standards bodies,
 then translates each failed rule into an explanation with your numbers in it.
 
+**Try it on one invoice first, without installing anything:
+[prufix-web-458372195267.europe-west1.run.app](https://prufix-web-458372195267.europe-west1.run.app)** — drop a
+UBL, CII or Factur-X file in a browser and get the same output this action
+writes into your pull request. Nothing is stored.
+
 ## The difference, in one error
 
 What a typical validator prints:
@@ -49,6 +54,10 @@ x BR-CO-13  Total amount does not match the line items
 The verdicts come from the official Schematron rules; the explanation layer
 is ours. Rules we have not yet written an explanation for are shown with the
 original message — never less than what the standard validators give you.
+
+Each explained rule also has a reference page —
+[BR-CO-13](https://prufix-web-458372195267.europe-west1.run.app/rules/BR-CO-13) is the one
+above, and [the full list is here](https://prufix-web-458372195267.europe-west1.run.app/rules/).
 
 ## Quickstart
 
