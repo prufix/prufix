@@ -1,0 +1,14 @@
+# Build context hygiene: keep the image to what the runtime needs.
+**/node_modules
+**/.git
+test/fixtures
+Dockerfile
+.github
+.gitignore
+.editorconfig
+.dockerignore
+README.md
+LICENSE
+docs
+action/test
+tools

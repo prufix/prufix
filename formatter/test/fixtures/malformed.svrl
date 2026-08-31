@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<svrl:schematron-output xmlns:svrl="http://purl.oclc.org/dsdl/svrl">
+  <svrl:failed-assert id="BR-CO-13" flag="fatal" location="/*[1]">
+    <svrl:text>[BR-

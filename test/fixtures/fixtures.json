@@ -1,0 +1,47 @@
+{
+  "_comment": "expectErrors lists rule IDs that MUST appear as error-severity findings for the file under the given profile. Arithmetic cascades may fire additional IDs alongside them (listed in mayAlsoFire); an empty expectErrors means zero error-severity findings are expected. Valid XRechnung files legitimately carry one information-level note (BR-DE-TMP-32), which is not an error.",
+  "valid/ubl-invoice-xrechnung.xml": {
+    "profile": "xrechnung-3.0.2",
+    "expectErrors": [],
+    "source": "itplr-kosit/xrechnung-testsuite v2026-01-31 instances/standard/01.01a-INVOICE_ubl.xml (verbatim)"
+  },
+  "valid/cii-invoice-xrechnung.xml": {
+    "profile": "xrechnung-3.0.2",
+    "expectErrors": [],
+    "source": "itplr-kosit/xrechnung-testsuite v2026-01-31 instances/standard/01.01a-INVOICE_uncefact.xml (verbatim)"
+  },
+  "valid/peppol-base.xml": {
+    "profile": "peppol-bis-3.0.21",
+    "expectErrors": [],
+    "source": "OpenPEPPOL/peppol-bis-invoice-3 rules/examples/base-example.xml (verbatim; byte-identical in v3.0.20 and 3.0.21 commit 806866bd)"
+  },
+  "valid/facturx-en16931.pdf": {
+    "profile": "facturx",
+    "expectErrors": [],
+    "source": "ZUGFeRD/corpus (Apache-2.0) XML-Rechnung/FX/EN16931_Einfach.pdf (verbatim)"
+  },
+  "invalid/br-co-13-total-mismatch.xml": {
+    "profile": "en16931",
+    "expectErrors": ["BR-CO-13"],
+    "mayAlsoFire": ["BR-CO-15"],
+    "source": "itplr-kosit/xrechnung-testsuite v2026-01-31 instances/standard/01.01a-INVOICE_ubl.xml, mutated: cbc:TaxExclusiveAmount 314.86 -> 9999.99"
+  },
+  "invalid/br-s-08-taxable-mismatch.xml": {
+    "profile": "en16931",
+    "expectErrors": ["BR-S-08"],
+    "mayAlsoFire": ["BR-S-09", "BR-CO-17"],
+    "source": "itplr-kosit/xrechnung-testsuite v2026-01-31 instances/standard/01.01a-INVOICE_ubl.xml, mutated: cac:TaxSubtotal/cbc:TaxableAmount 314.86 -> 100.00"
+  },
+  "invalid/br-06-missing-seller-name.xml": {
+    "profile": "en16931",
+    "expectErrors": ["BR-06"],
+    "mayAlsoFire": [],
+    "source": "itplr-kosit/xrechnung-testsuite v2026-01-31 instances/standard/01.01a-INVOICE_ubl.xml, mutated: seller cbc:RegistrationName removed"
+  },
+  "invalid/peppol-r020-missing-endpoint.xml": {
+    "profile": "peppol-bis-3.0.21",
+    "expectErrors": ["PEPPOL-EN16931-R020"],
+    "mayAlsoFire": [],
+    "source": "OpenPEPPOL/peppol-bis-invoice-3 rules/examples/base-example.xml (byte-identical in v3.0.20 and 3.0.21 commit 806866bd), mutated: seller cbc:EndpointID removed"
+  }
+}

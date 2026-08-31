@@ -1,0 +1,861 @@
+# prufix rule dictionary (contract §5)
+#
+# Rule semantics sources (fetched 2026-08-31):
+#   [TC434]  EN 16931 business rules as published in the Peppol rule tables:
+#            https://docs.peppol.eu/poacc/billing/3.0/rules/ubl-tc434/
+#            (rule text identical to ConnectingEurope/eInvoicing-EN16931 schematrons)
+#   [PEPPOL] Peppol BIS Billing 3.0 specific rules:
+#            https://docs.peppol.eu/poacc/billing/3.0/rules/ubl-peppol/
+#   [EN]     EN 16931-1 semantic model (BT/BG numbers and syntax bindings for
+#            UBL 2.1 and UN/CEFACT CII D16B)
+#
+# Conventions:
+#   - probe XPaths are written relative to the SVRL @location node first and
+#     fall back to the document root (contract §5); header-level probes are
+#     therefore written root-relative, line-level probes location-relative
+#     with descendant-or-self / ancestor-or-self guards.
+#   - `probe.cii` overrides individual probes when the source is CII.
+#   - `syntax` probes local-name(/*) ("Invoice" / "CreditNote" /
+#     "CrossIndustryInvoice") so hints can be syntax-specific.
+#   - severity here is informational; the reported severity comes from the
+#     SVRL flag (contract §4.3).
+#   - {key:,>12} in explain = thousands grouping, right-aligned to 12 columns.
+
+# ---------------------------------------------------------------------------
+# BR-CO-* — document totals and VAT arithmetic. The most common real-world
+# failures: they fire whenever an implementation rounds in the wrong place,
+# gets a sign wrong, or copies the wrong total.
+# ---------------------------------------------------------------------------
+
+# [TC434] BR-CO-10 (fatal): "Sum of Invoice line net amount (BT-106) =
+# Σ Invoice line net amount (BT-131)."
+BR-CO-10:
+  title: "Sum of line amounts does not match the invoice lines"
+  severity: error
+  probe:
+    stated: "cac:LegalMonetaryTotal/cbc:LineExtensionAmount"
+    lines: "sum(cac:InvoiceLine/cbc:LineExtensionAmount | cac:CreditNoteLine/cbc:LineExtensionAmount)"
+    lineCount: "count(cac:InvoiceLine | cac:CreditNoteLine)"
+  probe.cii:
+    stated: "rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:LineTotalAmount"
+    lines: "sum(rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedLineTradeSettlement/ram:SpecifiedTradeSettlementLineMonetarySummation/ram:LineTotalAmount)"
+    lineCount: "count(rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem)"
+  derive:
+    diff: "abs(lines - stated)"
+  explain: |
+    BT-106 (sum of line net amounts) states {stated:,>12}
+    but the {lineCount} invoice lines add up to {lines:,}
+    difference {diff:,}
+  hints:
+    - when: "diff != 0 and diff <= lineCount * 0.01"
+      text: >
+        The difference is within one cent per line. This is a rounding-place
+        bug: each line net amount must be rounded to 2 decimals first, and
+        BT-106 must be the exact sum of those rounded values. Summing
+        unrounded values and rounding the total produces exactly this error.
+
+# [TC434] BR-CO-11 (fatal): "Sum of allowances on document level (BT-107) =
+# Σ Document level allowance amount (BT-92)."
+BR-CO-11:
+  title: "Allowance total does not match the document-level allowances"
+  severity: error
+  probe:
+    # sum() so an absent BT-107 shows as 0.00 instead of dropping the line
+    stated: "sum(cac:LegalMonetaryTotal/cbc:AllowanceTotalAmount)"
+    total: "sum(cac:AllowanceCharge[cbc:ChargeIndicator = 'false']/cbc:Amount)"
+    count: "count(cac:AllowanceCharge[cbc:ChargeIndicator = 'false'])"
+  probe.cii:
+    stated: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:AllowanceTotalAmount)"
+    total: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeAllowanceCharge[ram:ChargeIndicator/udt:Indicator = 'false']/ram:ActualAmount)"
+    count: "count(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeAllowanceCharge[ram:ChargeIndicator/udt:Indicator = 'false'])"
+  derive:
+    diff: "abs(total - stated)"
+  explain: |
+    BT-107 (allowance total) states {stated:,>12}
+    the {count} document-level allowance(s) add up to {total:,}
+    difference {diff:,}
+  hints:
+    - when: "stated == 0 and total != 0"
+      text: >
+        You have document-level AllowanceCharge elements but no
+        AllowanceTotalAmount (BT-107) in the totals group. When any document
+        allowance exists, BT-107 must be present and equal their sum.
+    - when: "total < 0"
+      text: >
+        At least one allowance amount is negative. Allowance amounts (BT-92)
+        must be entered as positive numbers; the totals formula subtracts
+        them for you.
+
+# [TC434] BR-CO-12 (fatal): "Sum of charges on document level (BT-108) =
+# Σ Document level charge amount (BT-99)."
+BR-CO-12:
+  title: "Charge total does not match the document-level charges"
+  severity: error
+  probe:
+    stated: "sum(cac:LegalMonetaryTotal/cbc:ChargeTotalAmount)"
+    total: "sum(cac:AllowanceCharge[cbc:ChargeIndicator = 'true']/cbc:Amount)"
+    count: "count(cac:AllowanceCharge[cbc:ChargeIndicator = 'true'])"
+  probe.cii:
+    stated: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:ChargeTotalAmount)"
+    total: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeAllowanceCharge[ram:ChargeIndicator/udt:Indicator = 'true']/ram:ActualAmount)"
+    count: "count(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeAllowanceCharge[ram:ChargeIndicator/udt:Indicator = 'true'])"
+  derive:
+    diff: "abs(total - stated)"
+  explain: |
+    BT-108 (charge total) states {stated:,>12}
+    the {count} document-level charge(s) add up to {total:,}
+    difference {diff:,}
+  hints:
+    - when: "stated == 0 and total != 0"
+      text: >
+        You have document-level charges but no ChargeTotalAmount (BT-108) in
+        the totals group. When any document charge exists, BT-108 must be
+        present and equal their sum.
+
+# [TC434] BR-CO-13 (fatal): "Invoice total amount without VAT (BT-109) =
+# Σ Invoice line net amount (BT-131) - Sum of allowances on document level
+# (BT-107) + Sum of charges on document level (BT-108)."
+BR-CO-13:
+  title: "Total amount does not match the line items"
+  severity: error
+  probe:
+    stated: "cac:LegalMonetaryTotal/cbc:TaxExclusiveAmount"
+    lines: "sum(cac:InvoiceLine/cbc:LineExtensionAmount | cac:CreditNoteLine/cbc:LineExtensionAmount)"
+    lineCount: "count(cac:InvoiceLine | cac:CreditNoteLine)"
+    allowance: "sum(cac:AllowanceCharge[cbc:ChargeIndicator = 'false']/cbc:Amount)"
+    charge: "sum(cac:AllowanceCharge[cbc:ChargeIndicator = 'true']/cbc:Amount)"
+  probe.cii:
+    stated: "rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxBasisTotalAmount"
+    lines: "sum(rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedLineTradeSettlement/ram:SpecifiedTradeSettlementLineMonetarySummation/ram:LineTotalAmount)"
+    lineCount: "count(rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem)"
+    allowance: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeAllowanceCharge[ram:ChargeIndicator/udt:Indicator = 'false']/ram:ActualAmount)"
+    charge: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeAllowanceCharge[ram:ChargeIndicator/udt:Indicator = 'true']/ram:ActualAmount)"
+  derive:
+    expected: "lines - allowance + charge"
+    diff: "abs(expected - stated)"
+  explain: |
+    BT-109 (TaxExclusiveAmount) states {stated:,>12}
+    but the expected total is          {expected:,>12}
+    difference                         {diff:,>12}
+
+    Invoice lines      {lines:,>12}   ({lineCount} lines)
+    Document allowance {allowance:,>12}   (BT-92, subtracted)
+    Document charge    {charge:,>12}   (BT-99, added)
+    --------------------------------
+    Expected           {expected:,>12}
+  hints:
+    - when: "allowance < 0"
+      text: >
+        BT-92 is negative. Allowances must be entered as a positive number;
+        the formula subtracts them. A negative value is subtracted twice.
+    - when: "charge < 0"
+      text: >
+        BT-99 is negative. Charges must be entered as a positive number; the
+        formula adds them. Use an allowance (ChargeIndicator false) instead
+        of a negative charge.
+    - when: "stated == lines and (allowance != 0 or charge != 0)"
+      text: >
+        BT-109 equals the plain sum of the lines, ignoring the document-level
+        allowance/charge. The total without VAT must be lines - allowances
+        + charges, not just the line sum.
+
+# [TC434] BR-CO-14 (fatal): "Invoice total VAT amount (BT-110) =
+# Σ VAT category tax amount (BT-117)."
+BR-CO-14:
+  title: "Invoice VAT total does not match the VAT breakdown"
+  severity: error
+  probe:
+    stated: "cac:TaxTotal[cac:TaxSubtotal]/cbc:TaxAmount"
+    subtotals: "sum(cac:TaxTotal/cac:TaxSubtotal/cbc:TaxAmount)"
+    count: "count(cac:TaxTotal/cac:TaxSubtotal)"
+  probe.cii:
+    stated: "rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxTotalAmount"
+    subtotals: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:ApplicableTradeTax/ram:CalculatedAmount)"
+    count: "count(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:ApplicableTradeTax)"
+  derive:
+    diff: "abs(subtotals - stated)"
+  explain: |
+    BT-110 (invoice VAT total) states {stated:,>12}
+    the {count} VAT breakdown group(s) add up to {subtotals:,}
+    difference {diff:,}
+  hints:
+    - when: "diff != 0 and diff <= count * 0.01"
+      text: >
+        The difference is within one cent per VAT group. Each BT-117 must be
+        rounded to 2 decimals per VAT category, and BT-110 must be the sum of
+        those rounded values - not the VAT recomputed over the invoice total.
+
+# [TC434] BR-CO-15 (fatal): "Invoice total amount with VAT (BT-112) =
+# Invoice total amount without VAT (BT-109) + Invoice total VAT amount (BT-110)."
+BR-CO-15:
+  title: "Total with VAT is not total without VAT plus VAT"
+  severity: error
+  probe:
+    stated: "cac:LegalMonetaryTotal/cbc:TaxInclusiveAmount"
+    exclusive: "cac:LegalMonetaryTotal/cbc:TaxExclusiveAmount"
+    vat: "cac:TaxTotal[cac:TaxSubtotal]/cbc:TaxAmount"
+  probe.cii:
+    stated: "rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:GrandTotalAmount"
+    exclusive: "rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxBasisTotalAmount"
+    vat: "rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxTotalAmount"
+  derive:
+    expected: "exclusive + vat"
+    diff: "abs(expected - stated)"
+  explain: |
+    BT-112 (TaxInclusiveAmount) states {stated:,>12}
+    BT-109 (total without VAT)         {exclusive:,>12}
+    + BT-110 (VAT total)               {vat:,>12}
+    --------------------------------
+    Expected                           {expected:,>12}   (difference {diff:,})
+  hints:
+    - when: "stated == exclusive and vat != 0"
+      text: >
+        BT-112 equals BT-109: the VAT total was not added. TaxInclusiveAmount
+        must include the VAT even when the buyer settles it later.
+
+# [TC434] BR-CO-16 (fatal): "Amount due for payment (BT-115) = Invoice total
+# amount with VAT (BT-112) - Paid amount (BT-113) + Rounding amount (BT-114)."
+BR-CO-16:
+  title: "Amount due does not match total with VAT minus prepaid"
+  severity: error
+  probe:
+    stated: "cac:LegalMonetaryTotal/cbc:PayableAmount"
+    grand: "cac:LegalMonetaryTotal/cbc:TaxInclusiveAmount"
+    # sum() so absent optional amounts read as 0.00 instead of dropping lines
+    prepaid: "sum(cac:LegalMonetaryTotal/cbc:PrepaidAmount)"
+    rounding: "sum(cac:LegalMonetaryTotal/cbc:PayableRoundingAmount)"
+  probe.cii:
+    stated: "rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:DuePayableAmount"
+    grand: "rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:GrandTotalAmount"
+    prepaid: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TotalPrepaidAmount)"
+    rounding: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:RoundingAmount)"
+  derive:
+    expected: "grand - prepaid + rounding"
+    diff: "abs(expected - stated)"
+  explain: |
+    BT-115 (PayableAmount) states      {stated:,>12}
+    BT-112 (total with VAT)            {grand:,>12}
+    - BT-113 (prepaid)                 {prepaid:,>12}
+    + BT-114 (rounding)                {rounding:,>12}
+    --------------------------------
+    Expected                           {expected:,>12}   (difference {diff:,})
+  hints:
+    - when: "stated == grand and prepaid != 0"
+      text: >
+        The prepaid amount (BT-113) was not subtracted. When a prepayment is
+        stated, the amount due must be the total with VAT minus that
+        prepayment.
+    - when: "prepaid < 0"
+      text: >
+        BT-113 is negative. The paid amount must be positive; the formula
+        subtracts it from the total.
+
+# [TC434] BR-CO-17 (fatal): "VAT category tax amount (BT-117) = VAT category
+# taxable amount (BT-116) x (VAT category rate (BT-119) / 100), rounded to
+# two decimals."
+BR-CO-17:
+  title: "VAT amount does not equal taxable amount times rate"
+  severity: error
+  probe:
+    taxable: "descendant-or-self::cac:TaxSubtotal/cbc:TaxableAmount"
+    tax: "descendant-or-self::cac:TaxSubtotal/cbc:TaxAmount"
+    rate: "descendant-or-self::cac:TaxSubtotal/cac:TaxCategory/cbc:Percent"
+  probe.cii:
+    # line-level ram:ApplicableTradeTax has no BasisAmount; the filter keeps
+    # the root fallback on the header VAT breakdown
+    taxable: "descendant-or-self::ram:ApplicableTradeTax[ram:BasisAmount]/ram:BasisAmount"
+    tax: "descendant-or-self::ram:ApplicableTradeTax[ram:BasisAmount]/ram:CalculatedAmount"
+    rate: "descendant-or-self::ram:ApplicableTradeTax[ram:BasisAmount]/ram:RateApplicablePercent"
+  derive:
+    expected: "round(taxable * rate / 100, 2)"
+    diff: "abs(expected - tax)"
+  explain: |
+    The VAT breakdown states {tax:,} of VAT
+    on a taxable amount of {taxable:,} at {rate}%
+    {taxable:,} x {rate}% = {expected:,} (rounded to 2 decimals), difference {diff:,}
+  hints:
+    - when: "rate > 0 and rate < 1"
+      text: >
+        The VAT rate looks like a fraction ({rate}). BT-119 is a percentage:
+        write 19 for 19%, not 0.19.
+    - when: "diff != 0 and diff <= 0.01"
+      text: >
+        Off by up to one cent: round half up to exactly 2 decimals AFTER
+        multiplying the full taxable amount by the rate. Summing per-line VAT
+        that was rounded per line produces this difference.
+
+# ---------------------------------------------------------------------------
+# BR-S / BR-Z / BR-E / BR-AE — VAT category code vs rate combinations.
+# These fire when the business meaning of the category codes (UNCL5305) is
+# misunderstood, which is the second most common failure class.
+# ---------------------------------------------------------------------------
+
+# [TC434] BR-S-05 (fatal): "In an Invoice line (BG-25) where the Invoiced
+# item VAT category code (BT-151) is "Standard rated" the Invoiced item VAT
+# rate (BT-152) shall be greater than zero."
+BR-S-05:
+  title: "Standard-rated line must have a VAT rate above zero"
+  severity: error
+  probe:
+    lineId: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cbc:ID"
+    itemName: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cac:Item/cbc:Name"
+    category: "descendant-or-self::cac:ClassifiedTaxCategory/cbc:ID"
+    rate: "descendant-or-self::cac:ClassifiedTaxCategory/cbc:Percent"
+  probe.cii:
+    lineId: "ancestor-or-self::ram:IncludedSupplyChainTradeLineItem/ram:AssociatedDocumentLineDocument/ram:LineID"
+    itemName: "ancestor-or-self::ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedTradeProduct/ram:Name"
+    category: "descendant-or-self::ram:ApplicableTradeTax/ram:CategoryCode"
+    rate: "descendant-or-self::ram:ApplicableTradeTax/ram:RateApplicablePercent"
+  explain: |
+    Invoice line {lineId} ({itemName}) uses VAT category {category} with a rate of {rate}%.
+    Category "S" (standard rated) requires a rate greater than zero.
+  hints:
+    - when: "rate == 0"
+      text: >
+        A 0% rate with category S is contradictory. If the item is really
+        taxed at 0%, use category Z (zero rated); if it is exempt, use E; for
+        intra-EU reverse charge, use AE. The category code carries the legal
+        meaning - the rate alone does not.
+
+# [TC434] BR-S-08 (fatal): "For each different value of VAT category rate
+# (BT-119) where the VAT category code (BT-118) is "Standard rated", the VAT
+# category taxable amount (BT-116) in a VAT breakdown (BG-23) shall equal the
+# sum of Invoice line net amounts (BT-131) plus the sum of document level
+# charge amounts (BT-99) minus the sum of document level allowance amounts
+# (BT-92) where the VAT category code (BT-151, BT-102, BT-95) is "Standard
+# rated" and the VAT rate (BT-152, BT-103, BT-96) equals the VAT category
+# rate (BT-119)."
+#
+# Simplification: the official rule groups lines/charges/allowances by their
+# OWN rate matching BT-119 (a Schematron `every $rate in ...` loop). Our probe
+# language cannot inject a probed value back into another probe's XPath, so
+# `lines`/`allowance`/`charge` sum every category-S line/charge/allowance in
+# the document regardless of its own rate. This is exact when the document
+# has a single standard rate (the overwhelming majority of cases) and
+# approximate when it mixes two different standard rates; the `rateGroups`
+# hint below flags the latter so the shown numbers aren't taken at face value.
+BR-S-08:
+  title: "Standard-rated taxable amount does not match the lines"
+  severity: error
+  probe:
+    rate: "cbc:Percent"
+    stated: "../cbc:TaxableAmount"
+    lines: "sum(cac:InvoiceLine[normalize-space(cac:Item/cac:ClassifiedTaxCategory/cbc:ID)='S']/cbc:LineExtensionAmount | cac:CreditNoteLine[normalize-space(cac:Item/cac:ClassifiedTaxCategory/cbc:ID)='S']/cbc:LineExtensionAmount)"
+    lineCount: "count(cac:InvoiceLine[normalize-space(cac:Item/cac:ClassifiedTaxCategory/cbc:ID)='S'] | cac:CreditNoteLine[normalize-space(cac:Item/cac:ClassifiedTaxCategory/cbc:ID)='S'])"
+    allowance: "sum(cac:AllowanceCharge[cbc:ChargeIndicator = 'false'][normalize-space(cac:TaxCategory/cbc:ID)='S']/cbc:Amount)"
+    charge: "sum(cac:AllowanceCharge[cbc:ChargeIndicator = 'true'][normalize-space(cac:TaxCategory/cbc:ID)='S']/cbc:Amount)"
+    rateGroups: "count(../../cac:TaxSubtotal/cac:TaxCategory[normalize-space(cbc:ID)='S'])"
+  probe.cii:
+    rate: "../ram:RateApplicablePercent"
+    stated: "../ram:BasisAmount"
+    lines: "sum(rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem[ram:SpecifiedLineTradeSettlement/ram:ApplicableTradeTax/ram:CategoryCode='S']/ram:SpecifiedLineTradeSettlement/ram:SpecifiedTradeSettlementLineMonetarySummation/ram:LineTotalAmount)"
+    lineCount: "count(rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem[ram:SpecifiedLineTradeSettlement/ram:ApplicableTradeTax/ram:CategoryCode='S'])"
+    allowance: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeAllowanceCharge[ram:ChargeIndicator/udt:Indicator = 'false'][ram:CategoryTradeTax/ram:CategoryCode='S']/ram:ActualAmount)"
+    charge: "sum(rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeAllowanceCharge[ram:ChargeIndicator/udt:Indicator = 'true'][ram:CategoryTradeTax/ram:CategoryCode='S']/ram:ActualAmount)"
+    rateGroups: "count(../../ram:ApplicableTradeTax[ram:CategoryCode='S'])"
+  derive:
+    expected: "lines - allowance + charge"
+    diff: "abs(expected - stated)"
+  explain: |
+    BT-116 (standard-rated taxable amount) states {stated:,>12}
+    but the standard-rated lines/charges/allowances add up to {expected:,>12}
+    difference                                    {diff:,>12}
+
+    Standard-rated (S) lines   {lines:,>12}   ({lineCount} lines)
+    Document allowance (S)     {allowance:,>12}   (BT-92, subtracted)
+    Document charge (S)        {charge:,>12}   (BT-99, added)
+    --------------------------------
+    Expected                   {expected:,>12}
+  hints:
+    - when: "rateGroups > 1"
+      text: >
+        This invoice has {rateGroups} separate standard-rated (S) VAT groups
+        at different rates. The totals above sum every S-rated line and
+        document allowance/charge together, not just the {rate}% group - if
+        the numbers look wrong, check each rate's own lines individually.
+    - when: "allowance < 0"
+      text: >
+        BT-92 is negative. Allowances must be entered as a positive number;
+        the formula subtracts them.
+    - when: "charge < 0"
+      text: >
+        BT-99 is negative. Charges must be entered as a positive number; the
+        formula adds them.
+
+# [TC434] BR-S-09 (fatal): "The VAT category tax amount (BT-117) in a VAT
+# breakdown (BG-23) where VAT category code (BT-118) is "Standard rated"
+# shall equal the VAT category taxable amount (BT-116) multiplied by the VAT
+# category rate (BT-119)."
+BR-S-09:
+  title: "Standard-rated VAT amount does not equal taxable amount times rate"
+  severity: error
+  probe:
+    taxable: "../cbc:TaxableAmount"
+    tax: "../cbc:TaxAmount"
+    rate: "cbc:Percent"
+  probe.cii:
+    taxable: "../ram:BasisAmount"
+    tax: "../ram:CalculatedAmount"
+    rate: "../ram:RateApplicablePercent"
+  derive:
+    expected: "round(taxable * rate / 100, 2)"
+    diff: "abs(expected - tax)"
+  explain: |
+    The standard-rated (S) VAT breakdown states {tax:,} of VAT
+    on a taxable amount (BT-116) of {taxable:,} at {rate}%
+    {taxable:,} x {rate}% = {expected:,} (rounded to 2 decimals), difference {diff:,}
+  hints:
+    - when: "rate > 0 and rate < 1"
+      text: >
+        The VAT rate looks like a fraction ({rate}). BT-119 is a percentage:
+        write 19 for 19%, not 0.19.
+    - when: "rate == 0"
+      text: >
+        Category "S" (standard rated) requires a rate above zero (BR-S-05);
+        a 0% rate here means the category code is probably wrong, not the
+        amount.
+
+# [TC434] BR-Z-05 (fatal): "In an Invoice line (BG-25) where the Invoiced
+# item VAT category code (BT-151) is "Zero rated" the Invoiced item VAT rate
+# (BT-152) shall be 0 (zero)."
+BR-Z-05:
+  title: "Zero-rated line must have a VAT rate of exactly 0"
+  severity: error
+  probe:
+    lineId: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cbc:ID"
+    itemName: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cac:Item/cbc:Name"
+    category: "descendant-or-self::cac:ClassifiedTaxCategory/cbc:ID"
+    rate: "descendant-or-self::cac:ClassifiedTaxCategory/cbc:Percent"
+  probe.cii:
+    lineId: "ancestor-or-self::ram:IncludedSupplyChainTradeLineItem/ram:AssociatedDocumentLineDocument/ram:LineID"
+    itemName: "ancestor-or-self::ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedTradeProduct/ram:Name"
+    category: "descendant-or-self::ram:ApplicableTradeTax/ram:CategoryCode"
+    rate: "descendant-or-self::ram:ApplicableTradeTax/ram:RateApplicablePercent"
+  explain: |
+    Invoice line {lineId} ({itemName}) uses VAT category {category} with a rate of {rate}%.
+    Category "Z" (zero rated) requires the rate to be exactly 0.
+  hints:
+    - when: "rate > 0"
+      text: >
+        A positive rate with category Z is contradictory. If VAT actually
+        applies, the category must be S (standard rated) - do not keep Z from
+        a copied template while changing the rate.
+
+# [TC434] BR-E-05 (fatal): "In an Invoice line (BG-25) where the Invoiced
+# item VAT category code (BT-151) is "Exempt from VAT", the Invoiced item VAT
+# rate (BT-152) shall be 0 (zero)."
+BR-E-05:
+  title: "VAT-exempt line must have a VAT rate of 0"
+  severity: error
+  probe:
+    lineId: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cbc:ID"
+    itemName: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cac:Item/cbc:Name"
+    category: "descendant-or-self::cac:ClassifiedTaxCategory/cbc:ID"
+    rate: "descendant-or-self::cac:ClassifiedTaxCategory/cbc:Percent"
+  probe.cii:
+    lineId: "ancestor-or-self::ram:IncludedSupplyChainTradeLineItem/ram:AssociatedDocumentLineDocument/ram:LineID"
+    itemName: "ancestor-or-self::ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedTradeProduct/ram:Name"
+    category: "descendant-or-self::ram:ApplicableTradeTax/ram:CategoryCode"
+    rate: "descendant-or-self::ram:ApplicableTradeTax/ram:RateApplicablePercent"
+  explain: |
+    Invoice line {lineId} ({itemName}) uses VAT category {category} with a rate of {rate}%.
+    Category "E" (exempt from VAT) requires the rate to be 0.
+  hints:
+    - when: "rate > 0"
+      text: >
+        An exempt line cannot carry a VAT rate. Either the exemption is wrong
+        (use category S with this rate) or the rate is a leftover - set it
+        to 0 and state the exemption reason in the VAT breakdown (BT-120).
+
+# [TC434] BR-AE-05 (fatal): "In an Invoice line (BG-25) where the Invoiced
+# item VAT category code (BT-151) is "Reverse charge" the Invoiced item VAT
+# rate (BT-152) shall be 0 (zero)."
+BR-AE-05:
+  title: "Reverse-charge line must have a VAT rate of 0"
+  severity: error
+  probe:
+    lineId: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cbc:ID"
+    itemName: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cac:Item/cbc:Name"
+    category: "descendant-or-self::cac:ClassifiedTaxCategory/cbc:ID"
+    rate: "descendant-or-self::cac:ClassifiedTaxCategory/cbc:Percent"
+  probe.cii:
+    lineId: "ancestor-or-self::ram:IncludedSupplyChainTradeLineItem/ram:AssociatedDocumentLineDocument/ram:LineID"
+    itemName: "ancestor-or-self::ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedTradeProduct/ram:Name"
+    category: "descendant-or-self::ram:ApplicableTradeTax/ram:CategoryCode"
+    rate: "descendant-or-self::ram:ApplicableTradeTax/ram:RateApplicablePercent"
+  explain: |
+    Invoice line {lineId} ({itemName}) uses VAT category {category} with a rate of {rate}%.
+    Category "AE" (reverse charge) requires the rate to be 0.
+  hints:
+    - when: "rate > 0"
+      text: >
+        Under reverse charge the BUYER accounts for the VAT, so the invoice
+        line must show 0%. The {rate}% you entered is the rate the buyer will
+        self-assess - it does not go on the line.
+
+# [TC434] BR-AE-10 (fatal): "A VAT breakdown (BG-23) with VAT Category code
+# (BT-118) "Reverse charge" shall have a VAT exemption reason code (BT-121),
+# meaning "Reverse charge" or the VAT exemption reason text (BT-120)
+# "Reverse charge"."
+BR-AE-10:
+  title: "Reverse-charge VAT breakdown needs an exemption reason"
+  severity: error
+  probe:
+    category: "descendant-or-self::cac:TaxSubtotal/cac:TaxCategory/cbc:ID"
+    taxable: "descendant-or-self::cac:TaxSubtotal/cbc:TaxableAmount"
+    syntax: "local-name(/*)"
+  probe.cii:
+    category: "descendant-or-self::ram:ApplicableTradeTax[ram:BasisAmount]/ram:CategoryCode"
+    taxable: "descendant-or-self::ram:ApplicableTradeTax[ram:BasisAmount]/ram:BasisAmount"
+  explain: |
+    The VAT breakdown for category {category} (taxable amount {taxable:,}) has no exemption reason.
+    Reverse charge requires an exemption reason code (BT-121) or reason text (BT-120).
+  hints:
+    - when: "syntax == 'Invoice' or syntax == 'CreditNote'"
+      text: >
+        Add <cbc:TaxExemptionReasonCode>VATEX-EU-AE</cbc:TaxExemptionReasonCode>
+        or <cbc:TaxExemptionReason>Reverse charge</cbc:TaxExemptionReason>
+        inside cac:TaxCategory of the AE tax subtotal.
+    - when: "syntax == 'CrossIndustryInvoice'"
+      text: >
+        Add ram:ExemptionReasonCode VATEX-EU-AE or ram:ExemptionReason
+        "Reverse charge" to the AE ram:ApplicableTradeTax group.
+
+# ---------------------------------------------------------------------------
+# BR-* — missing mandatory fields. Simple, but frequent, and the free
+# validators only echo the spec sentence; the useful part is naming the
+# exact element to add in the syntax actually being used.
+# ---------------------------------------------------------------------------
+
+# [TC434] BR-01 (fatal): "An Invoice shall have a Specification identifier (BT-24)."
+BR-01:
+  title: "Missing specification identifier"
+  severity: error
+  probe:
+    syntax: "local-name(/*)"
+  explain: |
+    The document does not state which specification it follows (BT-24).
+  hints:
+    - when: "syntax == 'Invoice' or syntax == 'CreditNote'"
+      text: >
+        Add cbc:CustomizationID as the first element of the document. For
+        plain EN 16931 the value is urn:cen.eu:en16931:2017; for Peppol BIS
+        Billing 3.0 it is
+        urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0.
+    - when: "syntax == 'CrossIndustryInvoice'"
+      text: >
+        Add ram:GuidelineSpecifiedDocumentContextParameter/ram:ID under
+        rsm:ExchangedDocumentContext with the value urn:cen.eu:en16931:2017.
+
+# [TC434] BR-02 (fatal): "An Invoice shall have an Invoice number (BT-1)."
+BR-02:
+  title: "Missing invoice number"
+  severity: error
+  probe:
+    syntax: "local-name(/*)"
+  explain: |
+    The document has no invoice number (BT-1).
+  hints:
+    - when: "syntax == 'Invoice' or syntax == 'CreditNote'"
+      text: "Add cbc:ID as a direct child of the document root."
+    - when: "syntax == 'CrossIndustryInvoice'"
+      text: "Add ram:ID under rsm:ExchangedDocument."
+
+# [TC434] BR-03 (fatal): "An Invoice shall have an Invoice issue date (BT-2)."
+BR-03:
+  title: "Missing invoice issue date"
+  severity: error
+  probe:
+    syntax: "local-name(/*)"
+  explain: |
+    The document has no issue date (BT-2).
+  hints:
+    - when: "syntax == 'Invoice' or syntax == 'CreditNote'"
+      text: "Add cbc:IssueDate in the format YYYY-MM-DD."
+    - when: "syntax == 'CrossIndustryInvoice'"
+      text: >
+        Add ram:IssueDateTime/udt:DateTimeString with format="102" and the
+        value as CCYYMMDD (e.g. 20260831) under rsm:ExchangedDocument. A
+        missing format attribute is treated as a missing date by some
+        validators.
+
+# [TC434] BR-05 (fatal): "An Invoice shall have an Invoice currency code (BT-5)."
+BR-05:
+  title: "Missing invoice currency code"
+  severity: error
+  probe:
+    syntax: "local-name(/*)"
+  explain: |
+    The document has no invoice currency code (BT-5).
+  hints:
+    - when: "syntax == 'Invoice' or syntax == 'CreditNote'"
+      text: >
+        Add cbc:DocumentCurrencyCode with an ISO 4217 code (e.g. EUR). Note
+        the currencyID attributes on amounts do not replace it.
+    - when: "syntax == 'CrossIndustryInvoice'"
+      text: >
+        Add ram:InvoiceCurrencyCode under ram:ApplicableHeaderTradeSettlement
+        with an ISO 4217 code (e.g. EUR).
+
+# [TC434] BR-06 (fatal): "An Invoice shall contain the Seller name (BT-27)."
+BR-06:
+  title: "Missing seller name"
+  severity: error
+  probe:
+    syntax: "local-name(/*)"
+    tradingName: "cac:AccountingSupplierParty/cac:Party/cac:PartyName/cbc:Name"
+  explain: |
+    The document has no Seller name (BT-27).
+  hints:
+    - when: "syntax == 'Invoice' or syntax == 'CreditNote'"
+      text: >
+        In UBL, BT-27 is cac:PartyLegalEntity/cbc:RegistrationName under
+        cac:AccountingSupplierParty/cac:Party - NOT cac:PartyName/cbc:Name,
+        which is the trading name (BT-28) and does not satisfy this rule.
+    - text: >
+        You did provide a trading name ("{tradingName}") in
+        cac:PartyName/cbc:Name. Copy or move the legal name into
+        cac:PartyLegalEntity/cbc:RegistrationName.
+    - when: "syntax == 'CrossIndustryInvoice'"
+      text: >
+        Add ram:Name under
+        ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty.
+
+# [TC434] BR-25 (fatal): "Each Invoice line (BG-25) shall contain the Item
+# name (BT-153)."
+BR-25:
+  title: "Invoice line has no item name"
+  severity: error
+  probe:
+    syntax: "local-name(/*)"
+    lineId: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cbc:ID"
+  probe.cii:
+    syntax: "local-name(/*)"
+    lineId: "ancestor-or-self::ram:IncludedSupplyChainTradeLineItem/ram:AssociatedDocumentLineDocument/ram:LineID"
+  explain: |
+    Invoice line {lineId} has no item name (BT-153).
+  hints:
+    - when: "syntax == 'Invoice' or syntax == 'CreditNote'"
+      text: "Add cac:Item/cbc:Name to the line."
+    - when: "syntax == 'CrossIndustryInvoice'"
+      text: "Add ram:SpecifiedTradeProduct/ram:Name to the line item."
+
+# ---------------------------------------------------------------------------
+# BR-CL-* — code list validity. EN 16931 restricts several BT fields to a
+# specific external code list; the free validators only say "not a valid
+# code". The useful addition here is showing the value the user actually
+# sent and naming a few common correct values from the same list, rather
+# than embedding the whole list (BR-CL-01 alone lists ~60 codes).
+# ---------------------------------------------------------------------------
+
+# [TC434] BR-CL-01 (fatal): "The document type code MUST be coded by the
+# invoice and credit note related code lists of UNTDID 1001." UBL-only: the
+# CII schematron pinned for this build (CEN-EN16931-CII.sch, commit 806866bd,
+# contract §9.15) has no BR-CL-01 assertion at all - ram:TypeCode is not
+# checked against UNTDID 1001 there, so this rule never fires on a cii
+# document with the engine as shipped. Verified by fetching that file at the
+# pinned commit and confirming the assertion id is absent.
+BR-CL-01:
+  title: "Invoice type code is not a valid UNTDID 1001 code"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  probe:
+    stated: "cbc:InvoiceTypeCode | cbc:CreditNoteTypeCode"
+    syntax: "local-name(/*)"
+  explain: |
+    The document type code (BT-3) is "{stated}".
+    UNTDID 1001 restricts it to a subset of codes depending on whether the
+    document is an Invoice or a CreditNote; "{stated}" is not in that subset.
+  hints:
+    - text: >
+        The most common code for cbc:InvoiceTypeCode is 380 (Commercial
+        invoice); also seen are 384 (Corrected invoice), 389 (Self-billed
+        invoice) and 326 (Partial invoice). cbc:CreditNoteTypeCode is usually
+        381 (Credit note) or 396 (Factored credit note).
+    - when: "syntax == 'Invoice' and stated == '381'"
+      text: >
+        381 is the Credit note code - it is only valid in
+        cbc:CreditNoteTypeCode, not in an Invoice document's
+        cbc:InvoiceTypeCode. Use 380 (or 384/389) instead.
+    - when: "syntax == 'CreditNote' and stated == '380'"
+      text: >
+        380 is the Commercial invoice code - it is only valid in
+        cbc:InvoiceTypeCode, not in a CreditNote document's
+        cbc:CreditNoteTypeCode. Use 381 (or 396) instead.
+
+# [TC434] BR-CL-04 (fatal): "Invoice currency code MUST be coded using ISO
+# code list 4217 alpha-3." UBL-only for the same reason as BR-CL-01: the
+# pinned CII schematron does not assert BR-CL-04 either (verified the same
+# way, contract §9.15 commit).
+BR-CL-04:
+  title: "Invoice currency code is not a valid ISO 4217 code"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  probe:
+    stated: "cbc:DocumentCurrencyCode"
+  explain: |
+    The invoice currency code (BT-5) is "{stated}".
+    It must be a 3-letter ISO 4217 alpha-3 code, e.g. EUR, USD or GBP.
+  hints:
+    - when: "stated == 'eur'"
+      text: "ISO 4217 codes are uppercase: use EUR, not eur."
+    - when: "stated == 'usd'"
+      text: "ISO 4217 codes are uppercase: use USD, not usd."
+
+# ---------------------------------------------------------------------------
+# PEPPOL-EN16931-* — Peppol BIS Billing 3.0 additions on top of EN 16931.
+# The classic surprise: a document that validates cleanly against en16931
+# fails these the moment it is sent over the Peppol network. Peppol BIS is
+# UBL-only, so no CII probes here.
+# ---------------------------------------------------------------------------
+
+# [PEPPOL] PEPPOL-EN16931-R001 (fatal): "Business process MUST be provided."
+PEPPOL-EN16931-R001:
+  title: "Missing Peppol business process (ProfileID)"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  explain: |
+    The document has no business process identifier (BT-23, cbc:ProfileID).
+    EN 16931 leaves it optional; Peppol BIS Billing 3.0 requires it.
+  hints:
+    - text: >
+        Add <cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>
+        immediately after cbc:CustomizationID. This is why the file passes a
+        plain EN 16931 check but fails on the Peppol network.
+
+# [PEPPOL] PEPPOL-EN16931-R004 (fatal): "Specification identifier MUST begin
+# with the value 'urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0'."
+PEPPOL-EN16931-R004:
+  title: "Specification identifier is not the Peppol BIS value"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  probe:
+    stated: "cbc:CustomizationID"
+  explain: |
+    The Specification identifier (BT-24) is
+        "{stated}"
+    but Peppol BIS Billing 3.0 requires it to begin with
+        "urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0"
+  hints:
+    - when: "stated == 'urn:cen.eu:en16931:2017'"
+      text: >
+        The document declares plain EN 16931. For Peppol, append
+        #compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0 to the
+        CustomizationID - the same file then passes both checks.
+
+# [PEPPOL] PEPPOL-EN16931-R010 (fatal): "Buyer electronic address MUST be provided."
+PEPPOL-EN16931-R010:
+  title: "Missing buyer electronic address"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  explain: |
+    The document has no Buyer electronic address (BT-49).
+    EN 16931 leaves it optional; Peppol needs it to route the document.
+  hints:
+    - text: >
+        Add <cbc:EndpointID schemeID="...">...</cbc:EndpointID> under
+        cac:AccountingCustomerParty/cac:Party. The schemeID must be a code
+        from the Peppol Electronic Address Identifier scheme (e.g. 0192 for
+        a Norwegian org number, 0088 for a GLN, 9930 for a German VAT id).
+
+# [PEPPOL] PEPPOL-EN16931-R020 (fatal): "Seller electronic address MUST be provided."
+PEPPOL-EN16931-R020:
+  title: "Missing seller electronic address"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  explain: |
+    The document has no Seller electronic address (BT-34).
+    EN 16931 leaves it optional; Peppol needs it to identify the sender.
+  hints:
+    - text: >
+        Add <cbc:EndpointID schemeID="...">...</cbc:EndpointID> under
+        cac:AccountingSupplierParty/cac:Party, with a schemeID from the
+        Peppol Electronic Address Identifier scheme (e.g. 0192, 0088, 9930).
+
+# [PEPPOL] PEPPOL-EN16931-CL008 (fatal): "Electronic address identifier
+# scheme must be from the codelist 'Electronic Address Identifier Scheme'."
+# Context is cbc:EndpointID[@schemeID] itself (verified against
+# PEPPOL-EN16931-UBL.sch at the pinned commit, contract §9.15) - it fires for
+# both the buyer (BT-49) and seller (BT-34) electronic address, whichever one
+# the SVRL @location points at. Peppol BIS is UBL-only, so no CII probe.
+PEPPOL-EN16931-CL008:
+  title: "Electronic address scheme is not a Peppol-recognized code"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  probe:
+    scheme: "@schemeID"
+    value: "."
+  explain: |
+    The electronic address (BT-34/BT-49) uses scheme id "{scheme}"
+    for the address "{value}".
+    "{scheme}" is not in the Peppol Electronic Address Identifier Scheme list.
+  hints:
+    - text: >
+        Common scheme ids: 0192 for a Norwegian organisation number, 0088 for
+        a GLN, 9930 for a German VAT id. The scheme id must match how the
+        address value itself is formatted - swapping schemes without
+        changing the value is the usual cause of this error.
+
+# [PEPPOL] PEPPOL-EN16931-R120 (fatal): "Invoice line net amount MUST equal
+# (Invoiced quantity * (Item net price / item price base quantity) + Sum of
+# invoice line charge amount - sum of invoice line allowance amount)."
+PEPPOL-EN16931-R120:
+  title: "Line net amount does not match quantity times price"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  probe:
+    lineId: "cbc:ID"
+    lineNet: "cbc:LineExtensionAmount"
+    qty: "cbc:InvoicedQuantity | cbc:CreditedQuantity"
+    price: "cac:Price/cbc:PriceAmount"
+    # XPath 1.0 default-value idiom: BaseQuantity if present, else '1'
+    baseQty: "concat(cac:Price/cbc:BaseQuantity, substring('1', 1 div not(cac:Price/cbc:BaseQuantity)))"
+    lineAllowance: "sum(cac:AllowanceCharge[cbc:ChargeIndicator = 'false']/cbc:Amount)"
+    lineCharge: "sum(cac:AllowanceCharge[cbc:ChargeIndicator = 'true']/cbc:Amount)"
+  # These two mean "this line's own allowances/charges". Without this the §5
+  # root retry would substitute the DOCUMENT-level AllowanceCharge whenever the
+  # line has none, and print it as a line charge (contract §9.33).
+  locationOnly: [lineAllowance, lineCharge]
+  derive:
+    gross: "round(qty * price / baseQty, 2)"
+    expected: "gross + lineCharge - lineAllowance"
+    diff: "abs(expected - lineNet)"
+  explain: |
+    Line {lineId}: BT-131 (LineExtensionAmount) states {lineNet:,}
+    quantity {qty} x price {price:,} (per base quantity {baseQty}) = {gross:,}
+    + line charges {lineCharge:,} - line allowances {lineAllowance:,}
+    Expected {expected:,}   (difference {diff:,})
+  hints:
+    - when: "baseQty != 1"
+      text: >
+        The item price applies per base quantity of {baseQty}, not per single
+        unit. The line net amount must be quantity x (price / base quantity);
+        multiplying quantity x price without dividing gives exactly this
+        mismatch.
+    - when: "lineAllowance != 0 or lineCharge != 0"
+      text: >
+        This line has line-level allowances/charges. They belong INSIDE the
+        line net amount (BT-131 = qty x price + charges - allowances), unlike
+        document-level ones which are added after the line total.
+
+# [PEPPOL] PEPPOL-EN16931-R121 (fatal): "Base quantity MUST be a positive
+# number above zero."
+PEPPOL-EN16931-R121:
+  title: "Price base quantity must be above zero"
+  severity: error
+  appliesTo: [ubl-invoice, ubl-creditnote]
+  probe:
+    lineId: "ancestor-or-self::*[self::cac:InvoiceLine or self::cac:CreditNoteLine]/cbc:ID"
+    baseQty: "descendant-or-self::cac:Price/cbc:BaseQuantity"
+  explain: |
+    Line {lineId}: the item price base quantity (BT-149) is {baseQty}.
+    It must be a positive number above zero.
+  hints:
+    - when: "baseQty == 0"
+      text: >
+        A base quantity of 0 would divide the price by zero. If the price is
+        per single unit, omit cbc:BaseQuantity entirely or set it to 1.
+    - when: "baseQty < 0"
+      text: >
+        A negative base quantity is meaningless - the sign of a credit
+        belongs on the quantity or amounts, never on the price basis.

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svrl:schematron-output xmlns:svrl="http://purl.oclc.org/dsdl/svrl"
+                        title="EN16931 model bound to CII" schemaVersion="">
+  <svrl:ns-prefix-in-attribute-values prefix="rsm" uri="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"/>
+  <svrl:ns-prefix-in-attribute-values prefix="ram" uri="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100"/>
+  <svrl:ns-prefix-in-attribute-values prefix="udt" uri="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100"/>
+  <svrl:active-pattern id="EN16931-CII-model"/>
+  <svrl:fired-rule context="//ram:SpecifiedTradeSettlementHeaderMonetarySummation"/>
+  <!-- no @id, no @flag: rule id must come from the text, severity from @role -->
+  <svrl:failed-assert role="error"
+      test="..."
+      location="/Q{urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100}CrossIndustryInvoice[1]/Q{urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100}SupplyChainTradeTransaction[1]/Q{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}ApplicableHeaderTradeSettlement[1]/Q{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}SpecifiedTradeSettlementHeaderMonetarySummation[1]/Q{urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100}TaxBasisTotalAmount[1]">
+    <svrl:text>[BR-CO-13]-Invoice total amount without VAT (BT-109) = Σ Invoice line net amount (BT-131) - Sum of allowances on document level (BT-107) + Sum of charges on document level (BT-108).</svrl:text>
+  </svrl:failed-assert>
+</svrl:schematron-output>

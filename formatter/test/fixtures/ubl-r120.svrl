@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svrl:schematron-output xmlns:svrl="http://purl.oclc.org/dsdl/svrl" title="PEPPOL BIS Billing 3.0 rules" schemaVersion="">
+  <svrl:ns-prefix-in-attribute-values prefix="cbc" uri="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"/>
+  <svrl:ns-prefix-in-attribute-values prefix="cac" uri="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"/>
+  <svrl:ns-prefix-in-attribute-values prefix="ubl" uri="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"/>
+  <svrl:failed-assert flag="fatal" id="PEPPOL-EN16931-R120"
+      test="..."
+      location="/ubl:Invoice[1]/cac:InvoiceLine[1]">
+    <svrl:text>Invoice line net amount MUST equal (Invoiced quantity * (Item net price / item price base quantity) + Sum of invoice line charge amount - sum of invoice line allowance amount</svrl:text>
+  </svrl:failed-assert>
+</svrl:schematron-output>

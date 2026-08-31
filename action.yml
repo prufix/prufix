@@ -1,0 +1,66 @@
+name: 'Prufix'
+description: >-
+  An e-invoice linter for CI. Validates EN 16931, Peppol BIS, XRechnung and
+  Factur-X documents against the official rules and explains each failed rule
+  using the actual values from your document.
+author: 'prufix'
+
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  path:
+    description: >-
+      Glob pattern(s) selecting the invoice files to validate, one pattern
+      per line, relative to the workspace. Supports `**`.
+      Example: `test/fixtures/**/*.xml`.
+    required: true
+  profile:
+    description: >-
+      Validation profile: `en16931`, `peppol-bis-3.0.21`, `xrechnung-3.0.2`,
+      `facturx`, or `auto` (detect from the document's root element and
+      namespace).
+    required: false
+    default: 'auto'
+  fail-on:
+    description: >-
+      When to fail the step: `error` (any error-severity finding), `warning`
+      (any finding at all), or `never` (report only; the step still fails if
+      the toolchain itself breaks).
+    required: false
+    default: 'error'
+  comment:
+    description: >-
+      Post the findings as a pull-request comment (`true`/`false`). The
+      action updates its own previous comment instead of adding a new one.
+      Skipped outside pull-request events. Needs `pull-requests: write`.
+    required: false
+    default: 'true'
+  token:
+    description: >-
+      Token used to create/update the PR comment. Defaults to the workflow's
+      `github.token`. Only needed if you want the comment posted with a
+      different identity.
+    required: false
+    default: '${{ github.token }}'
+
+outputs:
+  report:
+    description: >-
+      Merged validation report for all checked files, as JSON (schema v1).
+  errors:
+    description: 'Total number of error-severity findings across all files.'
+  warnings:
+    description: 'Total number of warning-severity findings across all files.'
+  files-checked:
+    description: 'Number of files that were validated.'
+  passed:
+    description: >-
+      `true` when no error-severity findings were found, else `false`.
+      Independent of `fail-on`.
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  entrypoint: '/app/action/entrypoint.sh'

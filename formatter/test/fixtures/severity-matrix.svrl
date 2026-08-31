@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Regression fixture for contract §4.3 / §9.11: the full flag/role -> severity
+     matrix. The 2026-08 bug sent flag="information" (39 of 86 official XRechnung
+     instances carry it: BR-DE-TMP-32, customLevel-downgraded BR-CL-*) to the
+     default "error" branch, flagging every valid document. Unknown flags must
+     degrade DOWN to warning, never up to error. -->
+<svrl:schematron-output xmlns:svrl="http://purl.oclc.org/dsdl/svrl"
+                        title="severity matrix" schemaVersion="">
+  <svrl:ns-prefix-in-attribute-values prefix="ubl" uri="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"/>
+  <!-- 1: THE bug: flag="information" (KoSIT customLevel) -> warning, not error -->
+  <svrl:failed-assert flag="information" id="BR-DE-TMP-32" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>Temporary information note used by the official XRechnung suite.</svrl:text>
+  </svrl:failed-assert>
+  <!-- 2: a flag value we have never seen (invented after we shipped) -> warning, never error -->
+  <svrl:failed-assert flag="advisory" id="FUTURE-ADVISORY-R1" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>A severity word some standards body added later.</svrl:text>
+  </svrl:failed-assert>
+  <!-- 3: no flag at all -> Schematron's default assert is hard -> error -->
+  <svrl:failed-assert id="BR-52" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>Flagless assert stays an error.</svrl:text>
+  </svrl:failed-assert>
+  <!-- 4: no flag, @role downgrades (KoSIT customLevel via role) -> warning -->
+  <svrl:failed-assert role="warning" id="BR-CL-25" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>Role-downgraded codelist rule.</svrl:text>
+  </svrl:failed-assert>
+  <!-- 5: successful-report is ALWAYS warning, even flag="fatal" (Peppol warnings) -->
+  <svrl:successful-report flag="fatal" id="UBL-SR-13" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>Reported pattern, not a failure.</svrl:text>
+  </svrl:successful-report>
+  <!-- 6-7: the two genuine error flags -->
+  <svrl:failed-assert flag="fatal" id="BR-01" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>fatal is an error.</svrl:text>
+  </svrl:failed-assert>
+  <svrl:failed-assert flag="error" id="BR-02" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>error is an error.</svrl:text>
+  </svrl:failed-assert>
+  <!-- 8-9: warn / informational spellings -> warning -->
+  <svrl:failed-assert flag="warn" id="BR-03" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>warn is a warning.</svrl:text>
+  </svrl:failed-assert>
+  <svrl:failed-assert flag="informational" id="BR-04" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>informational is a warning.</svrl:text>
+  </svrl:failed-assert>
+  <!-- 10: no flag, role="info" -> warning -->
+  <svrl:failed-assert role="info" id="BR-05" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>role info downgrades.</svrl:text>
+  </svrl:failed-assert>
+  <!-- 11: no flag, role="fatal" -> role never downgrades to warning here -> error -->
+  <svrl:failed-assert role="fatal" id="BR-06" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>role fatal does not downgrade.</svrl:text>
+  </svrl:failed-assert>
+  <!-- 12: comparison is case-insensitive -->
+  <svrl:failed-assert flag="WARNING" id="BR-07" test="..." location="/ubl:Invoice[1]">
+    <svrl:text>uppercase WARNING is still a warning.</svrl:text>
+  </svrl:failed-assert>
+</svrl:schematron-output>

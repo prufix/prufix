@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "tools": {
+    "saxonClasspath": "tools/Saxon-HE-12.8.jar:tools/xmlresolver-5.3.3.jar"
+  },
+  "documentTypes": {
+    "ubl-invoice": {
+      "rootLocalName": "Invoice",
+      "rootNamespace": "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2",
+      "xsd": "artifacts/kosit/config/resources/ubl/2.1/xsd/maindoc/UBL-Invoice-2.1.xsd"
+    },
+    "ubl-creditnote": {
+      "rootLocalName": "CreditNote",
+      "rootNamespace": "urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2",
+      "xsd": "artifacts/kosit/config/resources/ubl/2.1/xsd/maindoc/UBL-CreditNote-2.1.xsd"
+    },
+    "cii": {
+      "rootLocalName": "CrossIndustryInvoice",
+      "rootNamespace": "urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100",
+      "xsd": "artifacts/kosit/config/resources/cii/16b/xsd/CrossIndustryInvoice_100pD16B.xsd"
+    }
+  },
+  "profiles": {
+    "en16931": {
+      "engine": "schematron",
+      "xslt": {
+        "ubl-invoice": ["artifacts/cen/EN16931-UBL-validation.xslt"],
+        "ubl-creditnote": ["artifacts/cen/EN16931-UBL-validation.xslt"],
+        "cii": ["artifacts/cen/EN16931-CII-validation.xslt"]
+      }
+    },
+    "peppol-bis-3.0.21": {
+      "engine": "schematron",
+      "artifactsVersion": "Peppol BIS Billing 3.0.21 (2026 May release, mandatory from 2026-08-17); CEN Schematron 1.3.16. Source: OpenPEPPOL/peppol-bis-invoice-3 commit 806866bd (branch 2026-Q2-QA2), byte-identical to the docs.peppol.eu published UBL Schematrons.",
+      "xslt": {
+        "ubl-invoice": [
+          "artifacts/peppol/CEN-EN16931-UBL.xslt",
+          "artifacts/peppol/PEPPOL-EN16931-UBL.xslt"
+        ],
+        "ubl-creditnote": [
+          "artifacts/peppol/CEN-EN16931-UBL.xslt",
+          "artifacts/peppol/PEPPOL-EN16931-UBL.xslt"
+        ],
+        "cii": [
+          "artifacts/peppol/CEN-EN16931-CII.xslt",
+          "artifacts/peppol/PEPPOL-EN16931-CII.xslt"
+        ]
+      }
+    },
+    "xrechnung-3.0.2": {
+      "engine": "kosit",
+      "validatorJar": "artifacts/kosit/validator.jar",
+      "scenarios": "artifacts/kosit/config/scenarios.xml",
+      "repository": "artifacts/kosit/config",
+      "overrides": "artifacts/kosit/overrides.xml"
+    },
+    "facturx": {
+      "engine": "pdf-extract",
+      "then": "en16931",
+      "embeddedNames": [
+        "factur-x.xml",
+        "zugferd-invoice.xml",
+        "ZUGFeRD-invoice.xml",
+        "xrechnung.xml",
+        "order-x.xml"
+      ]
+    }
+  },
+  "autoDetect": {
+    "customizationContains": [
+      { "substring": "xeinkauf.de:kosit:xrechnung_3.0", "profile": "xrechnung-3.0.2" },
+      { "substring": "peppol.eu:2017:poacc:billing:3.0", "profile": "peppol-bis-3.0.21" },
+      { "substring": "urn:cen.eu:en16931:2017", "profile": "en16931" }
+    ],
+    "pdfProfile": "facturx"
+  }
+}

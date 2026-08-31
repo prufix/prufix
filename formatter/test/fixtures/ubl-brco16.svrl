@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svrl:schematron-output xmlns:svrl="http://purl.oclc.org/dsdl/svrl" title="EN16931 model bound to UBL" schemaVersion="">
+  <svrl:ns-prefix-in-attribute-values prefix="cbc" uri="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"/>
+  <svrl:ns-prefix-in-attribute-values prefix="cac" uri="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"/>
+  <svrl:ns-prefix-in-attribute-values prefix="ubl" uri="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"/>
+  <svrl:failed-assert flag="fatal" id="BR-CO-16"
+      test="..."
+      location="/ubl:Invoice[1]/cac:LegalMonetaryTotal[1]/cbc:PayableAmount[1]">
+    <svrl:text>[BR-CO-16]-Amount due for payment (BT-115) = Invoice total amount with VAT (BT-112) -Paid amount (BT-113) +Rounding amount (BT-114).</svrl:text>
+  </svrl:failed-assert>
+</svrl:schematron-output>

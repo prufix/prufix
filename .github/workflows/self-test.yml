@@ -1,0 +1,82 @@
+# Self-test for the prufix action.
+#
+# Paths are relative to the published repository root (= app/ in the
+# development monorepo). Two layers:
+#   unit   - the wrapper logic against stub engine/formatter, no Docker
+#   docker - the real image, built from ./Dockerfile by `uses: ./`
+name: self-test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Wrapper unit tests (stub engine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the local test suite
+        run: bash action/test/run-tests.sh
+
+  docker:
+    name: End-to-end against the real image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate bundled fixtures
+        id: fixtures
+        uses: ./
+        with:
+          path: 'test/fixtures/**/*.xml'
+          profile: 'auto'
+          fail-on: 'never'
+          comment: false
+
+      - name: Assert fixtures were checked
+        run: |
+          echo "files-checked=${{ steps.fixtures.outputs.files-checked }} errors=${{ steps.fixtures.outputs.errors }} warnings=${{ steps.fixtures.outputs.warnings }}"
+          test "${{ steps.fixtures.outputs.files-checked }}" -ge 1
+
+      # A deliberately unparseable file must surface as an error finding
+      # (engine exit 2 -> INPUT-INVALID) and fail the step under
+      # fail-on: error. This guards the worst failure mode: a broken
+      # container reporting green.
+      - name: Create a deliberately broken input
+        run: |
+          mkdir -p self-test
+          printf 'this is not xml' > self-test/broken.xml
+
+      - name: Broken input must fail the step
+        id: broken
+        continue-on-error: true
+        uses: ./
+        with:
+          path: 'self-test/broken.xml'
+          profile: 'en16931'
+          fail-on: 'error'
+          comment: false
+
+      - name: Assert the failure was reported
+        run: |
+          test "${{ steps.broken.outcome }}" = "failure"
+          test "${{ steps.broken.outputs.errors }}" -ge 1
+          test "${{ steps.broken.outputs.passed }}" = "false"
+
+      - name: Zero glob matches must fail with a clear message
+        id: nomatch
+        continue-on-error: true
+        uses: ./
+        with:
+          path: 'no/such/dir/**/*.xml'
+          profile: 'auto'
+          fail-on: 'never'
+          comment: false
+
+      - name: Assert the zero-match failure
+        run: test "${{ steps.nomatch.outcome }}" = "failure"
