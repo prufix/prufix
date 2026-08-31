@@ -80,3 +80,46 @@ jobs:
 
       - name: Assert the zero-match failure
         run: test "${{ steps.nomatch.outcome }}" = "failure"
+
+  # The PR-comment path (action/src/github.js) has no coverage outside the
+  # fake-GitHub unit tests: a `push` run never reaches it, because
+  # prContext() returns null for anything but pull_request. This job is the
+  # only place the real API call happens, so it also asserts the result --
+  # running the action without checking what it wrote is what let the
+  # facturx profile ship broken.
+  #
+  # Skipped for fork PRs: GITHUB_TOKEN is read-only there by design, the
+  # action degrades to a warning, and the assertion below would fail on a
+  # contributor's PR for a reason that is not their fault.
+  pr-comment:
+    name: PR comment path
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate fixtures and post the PR comment
+        uses: ./
+        with:
+          path: 'test/fixtures/**/*.xml'
+          profile: 'auto'
+          fail-on: 'never'
+          comment: true
+
+      # Exactly one, not at least one: the marker exists so that a re-run
+      # updates the comment in place. Two markers means the upsert became an
+      # append, which is invisible on a first run and only shows up here.
+      - name: Assert exactly one marked comment exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          count=$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+            --jq '.[].body' | grep -c '<!-- prufix:report -->' || true)
+          echo "comments carrying the marker: ${count}"
+          test "${count}" -eq 1
