@@ -56,7 +56,25 @@ test('validateDocument: BR-CO-13 fixture produces an enriched report.json-shaped
   assert.equal(f.enriched, true);
   assert.ok(f.explain.includes('1,180.00') || f.explain.includes('1180.00'), 'explain should reference the stated value');
   assert.ok(f.values, 'enriched finding should carry probed values');
-  assert.equal(f.docUrl, 'https://example.dev/rules/BR-CO-13');
+  // docBase comes from the environment; the module reads it per call, so setting
+  // it here is enough. It used to be asserted against a hardcoded placeholder
+  // default, which meant this line tested the placeholder rather than the wiring.
+  assert.equal(f.docUrl, undefined, 'no EINVOICE_DOC_BASE set -> no docUrl at all');
+});
+
+test('validateDocument: docUrl is built from EINVOICE_DOC_BASE when it is set', () => {
+  const prev = process.env.EINVOICE_DOC_BASE;
+  process.env.EINVOICE_DOC_BASE = 'https://host.invalid/rules';
+  try {
+    const { report } = validateDocument(Buffer.from(BRCO13_XML, 'utf8'), 'en16931', {
+      engineRunner: writingEngine(BRCO13_SVRL),
+    });
+    const f = report.files[0].findings[0];
+    assert.equal(f.docUrl, 'https://host.invalid/rules/BR-CO-13');
+  } finally {
+    if (prev === undefined) delete process.env.EINVOICE_DOC_BASE;
+    else process.env.EINVOICE_DOC_BASE = prev;
+  }
 });
 
 test('validateDocument: no findings -> summary.passed true, empty findings array', () => {

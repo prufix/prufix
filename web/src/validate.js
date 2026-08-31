@@ -26,8 +26,18 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const RULES_PATH = path.join(__dirname, '..', '..', 'formatter', 'rules', 'rules.yaml');
 const FORMATTER_PKG_PATH = path.join(__dirname, '..', '..', 'formatter', 'package.json');
 
-// Product name/org/domain are undecided (contract §8) -- placeholder only.
-const DOC_BASE = process.env.EINVOICE_DOC_BASE || 'https://example.dev/rules';
+// Unset means no docUrl at all, never a guessed one. This used to fall back to
+// 'https://example.dev/rules' from the time the domain was undecided (contract
+// section 8, since closed), which would have pointed every reader at a host we
+// do not own. enrich.js already omits docUrl when docBase is falsy, so absence
+// costs a link and nothing else, while a wrong base is a confident wrong answer
+// -- the same direction section 9.40 chose for the canonical tag, which was
+// applied to the generator and missed here.
+//
+// Read per call rather than once at require() time, so the value can be changed
+// with a Cloud Run env update instead of an image rebuild, and so a test can set
+// it after this module is already loaded.
+const docBase = () => process.env.EINVOICE_DOC_BASE || null;
 
 let rulesCache = null;
 function getRules() {
@@ -159,7 +169,7 @@ function validateDocument(body, profile, opts = {}) {
         sourcePath: 'upload',
         profile,
         rules: getRules(),
-        docBase: DOC_BASE,
+        docBase: docBase(),
         toolVersion: getToolVersion(),
       });
     } catch (e) {
